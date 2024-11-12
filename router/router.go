@@ -25,6 +25,12 @@ func init() {
 		{
 			v3.GET("/", common.Beat)
 
+			// OAuth 回调端点
+			v3.GET("/oauth/callback", token.OAuthCallback)
+
+			// 登录状态检查端点
+			v3.GET("/auth/status", token.CheckAuthStatus)
+
 			s := v3.Group("/token")
 			{
 				s.POST("", token.AuthMiddleware.LoginHandler)    // 创建 Session（登陆）
@@ -42,7 +48,7 @@ func init() {
 			p := v3.Group("/paste")
 			{
 				p.POST("/", token.AuthMiddleware.MiddlewareFunc(true),
-					paste.Create)         // 创建一个 Paste
+					paste.Create) // 创建一个 Paste
 				p.GET("/:key", paste.Get) // 读取 Paste
 			}
 		}

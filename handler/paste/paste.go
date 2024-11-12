@@ -1,9 +1,9 @@
 package paste
 
 import (
+	"errors"
 	"github.com/PasteUs/PasteMeGoBackend/common/logging"
 	"github.com/PasteUs/PasteMeGoBackend/handler/common"
-	"github.com/PasteUs/PasteMeGoBackend/handler/token"
 	model "github.com/PasteUs/PasteMeGoBackend/model/paste"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -24,51 +24,48 @@ import (
 // @Failure default {object} common.ErrorResponse
 // @Router /paste/ [post]
 func Create(context *gin.Context) {
-	username := context.GetString(token.IdentityKey)
-
-	body := CreateRequest{
-		AbstractPaste: &model.AbstractPaste{
-			ClientIP: context.ClientIP(),
-			Username: username,
-		},
+	// 从 Cookie 中获取 access_token
+	accessToken, err := context.Cookie("access_token")
+	if err != nil || accessToken == "" {
+		logging.Info("missing access token in cookie, unauthorized")
+		common.ErrUnauthorized.Abort(context)
+		return
 	}
 
-	if err := context.ShouldBindJSON(&body); err != nil {
-		logging.Warn("bind body failed", context, zap.Error(err))
+	// 验证 access_token（调用 authenticator 函数或其他验证逻辑）
+	var requestBody CreateRequest
+	if err := context.ShouldBindJSON(&requestBody); err != nil {
+		logging.Warn("bind body failed", zap.Error(err))
 		common.ErrWrongParamType.Abort(context)
 		return
 	}
 
-	if err := validator(body); err != nil {
-		logging.Info("param validate failed", zap.Error(err))
-		err.Abort(context)
-		return
-	}
-
-	if err := authenticator(body); err != nil {
+	// 鉴权逻辑，可以使用 authenticator 函数或者直接在此处验证
+	if err := authenticator(requestBody, accessToken); err != nil {
 		logging.Info("unauthorized request")
 		err.Abort(context)
 		return
 	}
 
+	// 处理创建 Paste 的逻辑
 	var paste model.IPaste
-
-	if body.SelfDestruct {
+	if requestBody.SelfDestruct {
 		paste = &model.Temporary{
-			AbstractPaste: body.AbstractPaste,
-			ExpireSecond:  body.ExpireSecond,
-			ExpireCount:   body.ExpireCount,
+			AbstractPaste: requestBody.AbstractPaste,
+			ExpireSecond:  requestBody.ExpireSecond,
+			ExpireCount:   requestBody.ExpireCount,
 		}
 	} else {
-		paste = &model.Permanent{AbstractPaste: body.AbstractPaste}
+		paste = &model.Permanent{AbstractPaste: requestBody.AbstractPaste}
 	}
 
 	if err := paste.Save(); err != nil {
-		logging.Error("save failed", context, zap.Error(err))
+		logging.Error("save failed", zap.Error(err))
 		common.ErrSaveFailed.Abort(context)
 		return
 	}
 
+	// 返回成功响应
 	common.JSON(context, CreateResponse{
 		Response: &common.Response{Code: http.StatusCreated},
 		Key:      paste.GetKey(),
@@ -106,11 +103,11 @@ func Get(context *gin.Context) {
 
 	if err := paste.Get(context.DefaultQuery("password", "")); err != nil {
 		var errorResponse *common.ErrorResponse
-		switch err {
-		case gorm.ErrRecordNotFound:
+		switch {
+		case errors.Is(err, gorm.ErrRecordNotFound):
 			errorResponse = common.ErrRecordNotFound
-		case common.ErrWrongPassword:
-			errorResponse = err.(*common.ErrorResponse)
+		case errors.Is(err, common.ErrWrongPassword):
+			errors.As(err, &errorResponse)
 		default:
 			logging.Error("query from db failed", context, zap.Error(err))
 			errorResponse = common.ErrQueryDBFailed

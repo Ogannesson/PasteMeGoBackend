@@ -19,6 +19,8 @@ var (
 
 	ErrUnauthorized = New(http.StatusUnauthorized, 1, "unauthorized")
 
+	ErrInsufficient_level = New(http.StatusForbidden, 1, "insufficient level")
+
 	ErrWrongPassword = New(http.StatusForbidden, 1, "wrong password")
 
 	ErrNoRouterFounded = New(http.StatusNotFound, 1, "no router founded")
